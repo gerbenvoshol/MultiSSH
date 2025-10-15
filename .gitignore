@@ -1,0 +1,13 @@
+# Build artifacts
+multissh
+*.o
+*.a
+*.so
+
+# Temporary files
+*~
+*.swp
+*.tmp
+
+# Personal SSH server lists (keep example)
+sshservers
