@@ -37,15 +37,10 @@ int valid_port(int *port) {
 }
 
 void remove_new_line(char *string) {
-
-  for(size_t i = 0; i < strlen(string); i++) {
-
-    char *c = strchr(string, '\n');
-
-    if (c)
-      *c = 0;
-
-    }
+  char *newline = strchr(string, '\n');
+  if (newline) {
+    *newline = '\0';
+  }
 }
 
 // run command(s), and display any resulting output
@@ -123,6 +118,11 @@ int is_server_selected(const char *server, const char *selected_servers) {
   
   // Create a copy of selected_servers to tokenize
   char *servers_copy = strdup(selected_servers);
+  if (servers_copy == NULL) {
+    fprintf(stderr, "Error: Memory allocation failed\n");
+    return 0;
+  }
+  
   char *token = strtok(servers_copy, ",");
   
   while (token != NULL) {
@@ -200,9 +200,10 @@ int main(int argc, char *argv[]) {
     }
 
 // read ssh list file
+  line_number = 0;
   while ((ssh_line_read = getline(&ssh_line, &ssh_line_len, ssh_fp)) != -1) {
 
-      line_number = 1;
+      line_number++;
 
       ssh_server = strtok(ssh_line,":");
       string_ssh_port = strtok(NULL,":");
