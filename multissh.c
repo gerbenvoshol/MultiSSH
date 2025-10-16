@@ -23,6 +23,8 @@ void remove_new_line(char *string);
 int run_command(ssh_session session, char *command);
 void print_usage(const char *program_name);
 int is_server_selected(const char *server, const char *selected_servers);
+void decrypt_data(char *data, size_t length, const char *password);
+int read_encrypted_file(const char *filename, const char *password, char **buffer, size_t *size);
 
 // Function implementations
 int valid_port(int *port) {
@@ -103,11 +105,13 @@ void print_usage(const char *program_name) {
   fprintf(stderr, "Options:\n");
   fprintf(stderr, "  -f FILE    Use FILE as the SSH servers list (default: sshservers)\n");
   fprintf(stderr, "  -s LIST    Select specific servers (comma-separated list of server:port)\n");
+  fprintf(stderr, "  -p PASS    Password for decrypting the SSH servers file\n");
   fprintf(stderr, "  -h         Show this help message\n");
   fprintf(stderr, "\nExamples:\n");
   fprintf(stderr, "  %s 'ls -la'\n", program_name);
   fprintf(stderr, "  %s -f /path/to/servers 'uptime'\n", program_name);
   fprintf(stderr, "  %s -s '192.168.1.10:22,192.168.1.11:22' 'df -h'\n", program_name);
+  fprintf(stderr, "  %s -p mypassword 'df -h'\n", program_name);
 }
 
 // Check if a server:port combination is in the selected servers list
@@ -143,13 +147,62 @@ int is_server_selected(const char *server, const char *selected_servers) {
   return 0;
 }
 
+// Simple XOR encryption/decryption function
+void decrypt_data(char *data, size_t length, const char *password) {
+  if (password == NULL || strlen(password) == 0) {
+    return; // No decryption if no password provided
+  }
+  
+  size_t pass_len = strlen(password);
+  for (size_t i = 0; i < length; i++) {
+    data[i] ^= password[i % pass_len];
+  }
+}
+
+// Read and decrypt a file
+int read_encrypted_file(const char *filename, const char *password, char **buffer, size_t *size) {
+  FILE *file = fopen(filename, "rb");
+  if (file == NULL) {
+    return -1;
+  }
+  
+  // Get file size
+  fseek(file, 0, SEEK_END);
+  *size = ftell(file);
+  fseek(file, 0, SEEK_SET);
+  
+  // Allocate buffer
+  *buffer = malloc(*size + 1);
+  if (*buffer == NULL) {
+    fclose(file);
+    return -1;
+  }
+  
+  // Read file
+  if (fread(*buffer, 1, *size, file) != *size) {
+    free(*buffer);
+    *buffer = NULL;
+    fclose(file);
+    return -1;
+  }
+  
+  fclose(file);
+  
+  // Decrypt if password provided
+  if (password != NULL && strlen(password) > 0) {
+    decrypt_data(*buffer, *size, password);
+  }
+  
+  // Null terminate
+  (*buffer)[*size] = '\0';
+  
+  return 0;
+}
+
 int main(int argc, char *argv[]) {
 
   FILE * ssh_fp;
-  char *ssh_line = NULL;
   int error_number, rc, ssh_port, line_number;
-  size_t ssh_line_len = 0;
-  ssize_t ssh_line_read;
   char *ssh_server;
   char *string_ssh_port;
   char *ssh_username;
@@ -158,16 +211,20 @@ int main(int argc, char *argv[]) {
   char *ssh_servers_file = SSH_SERVERS_LIST;
   char *selected_servers = NULL;
   char *command = NULL;
+  char *password = NULL;
   int opt;
 
   // Parse command line arguments
-  while ((opt = getopt(argc, argv, "f:s:h")) != -1) {
+  while ((opt = getopt(argc, argv, "f:s:p:h")) != -1) {
     switch (opt) {
       case 'f':
         ssh_servers_file = optarg;
         break;
       case 's':
         selected_servers = optarg;
+        break;
+      case 'p':
+        password = optarg;
         break;
       case 'h':
         print_usage(argv[0]);
@@ -188,79 +245,159 @@ int main(int argc, char *argv[]) {
 
   command = argv[optind];
 
-  ssh_fp = fopen(ssh_servers_file, "r");
-
-// check for ssh list file
-   if (ssh_fp == NULL) {
-
+  // Read and decrypt the SSH servers file
+  char *file_content;
+  size_t file_size;
+  
+  // Try to read as encrypted file first if password provided, otherwise as plain text
+  if (password != NULL) {
+    if (read_encrypted_file(ssh_servers_file, password, &file_content, &file_size) != 0) {
+      error_number = errno;
+      fprintf(stderr, "Error opening encrypted SSH servers list '%s': %s\n", ssh_servers_file, strerror(error_number));
+      exit(EXIT_FAILURE);
+    }
+  } else {
+    // Read as plain text file
+    ssh_fp = fopen(ssh_servers_file, "r");
+    if (ssh_fp == NULL) {
       error_number = errno;
       fprintf(stderr, "Error opening SSH servers list '%s': %s\n", ssh_servers_file, strerror(error_number));
       exit(EXIT_FAILURE);
-
     }
+    
+    // Get file size
+    fseek(ssh_fp, 0, SEEK_END);
+    file_size = ftell(ssh_fp);
+    fseek(ssh_fp, 0, SEEK_SET);
+    
+    // Allocate buffer
+    file_content = malloc(file_size + 1);
+    if (file_content == NULL) {
+      fprintf(stderr, "Error: Memory allocation failed\n");
+      fclose(ssh_fp);
+      exit(EXIT_FAILURE);
+    }
+    
+    // Read file
+    if (fread(file_content, 1, file_size, ssh_fp) != file_size) {
+      fprintf(stderr, "Error reading SSH servers list '%s'\n", ssh_servers_file);
+      free(file_content);
+      fclose(ssh_fp);
+      exit(EXIT_FAILURE);
+    }
+    
+    file_content[file_size] = '\0';
+    fclose(ssh_fp);
+  }
 
-// read ssh list file
+  // Process the file content line by line
   line_number = 0;
-  while ((ssh_line_read = getline(&ssh_line, &ssh_line_len, ssh_fp)) != -1) {
-
-      line_number++;
-
-      ssh_server = strtok(ssh_line,":");
-      string_ssh_port = strtok(NULL,":");
-      ssh_username = strtok(NULL,":");
-      ssh_password = strtok(NULL,":");
-
-      ssh_port = atoi(string_ssh_port);
-
-      // Create server:port string for selection check
-      char server_port[256];
-      snprintf(server_port, sizeof(server_port), "%s:%d", ssh_server, ssh_port);
-
-      // Check if this server is selected (if selection is specified)
-      if (!is_server_selected(server_port, selected_servers)) {
-        continue; // Skip this server
-      }
-
-      if (strlen(ssh_line) > 512)
-         fprintf(stderr, "Error with line %d, maximum length reached in %s, each line must be no more than 512 characters long.\n", line_number, ssh_servers_file);
-
-      if (!(valid_port(&ssh_port)))
-         fprintf(stderr, "Error invalid port number %d in the file '%s', line %d.\n", ssh_port, ssh_servers_file, line_number);
-
-      single_ssh_session = ssh_new();
-
-      if (single_ssh_session == NULL)
-         fprintf(stderr, "Error creating new session.\n");
-
-      ssh_options_set(single_ssh_session, SSH_OPTIONS_HOST, ssh_server);
-      ssh_options_set(single_ssh_session, SSH_OPTIONS_PORT, &ssh_port);
-      ssh_options_set(single_ssh_session, SSH_OPTIONS_USER, ssh_username);
-
-      rc = ssh_connect(single_ssh_session);
-
-      if (rc != SSH_OK)
-        fprintf(stderr, "Error connecting to %s: %s\n", ssh_server, ssh_get_error(single_ssh_session));
-
-      remove_new_line(ssh_password);
-
-      rc = ssh_userauth_password(single_ssh_session, NULL, ssh_password);
-
-  // if logged in, run command(s)
-      if (rc == SSH_AUTH_SUCCESS)
-        run_command(single_ssh_session, command);
-
-      else {
-        fprintf(stderr, "Error: %s, in %s line %d\n",
-        ssh_get_error(single_ssh_session), ssh_servers_file, line_number);
-      }
-
-      ssh_disconnect(single_ssh_session);
-      ssh_free(single_ssh_session);
-
+  char *line_start = file_content;
+  char *line_end;
+  
+  while ((line_end = strchr(line_start, '\n')) != NULL || *line_start != '\0') {
+    line_number++;
+    
+    // Handle last line without newline
+    if (line_end == NULL) {
+      line_end = line_start + strlen(line_start);
+    }
+    
+    // Extract the line
+    size_t line_len = line_end - line_start;
+    if (line_len == 0) break;
+    
+    char *current_line = malloc(line_len + 1);
+    if (current_line == NULL) {
+      fprintf(stderr, "Error: Memory allocation failed\n");
+      free(file_content);
+      exit(EXIT_FAILURE);
+    }
+    
+    strncpy(current_line, line_start, line_len);
+    current_line[line_len] = '\0';
+    
+    // Skip empty lines
+    if (strlen(current_line) == 0) {
+      free(current_line);
+      line_start = line_end + 1;
+      continue;
     }
 
-  free(ssh_line);
-  fclose(ssh_fp);
+    // Check line length before parsing
+    if (line_len > 512) {
+       fprintf(stderr, "Error with line %d, maximum length reached in %s, each line must be no more than 512 characters long.\n", line_number, ssh_servers_file);
+    }
+
+    ssh_server = strtok(current_line,":");
+    string_ssh_port = strtok(NULL,":");
+    ssh_username = strtok(NULL,":");
+    ssh_password = strtok(NULL,":");
+
+    // Validate parsed data (may be corrupted if decryption failed)
+    if (ssh_server == NULL || string_ssh_port == NULL || ssh_username == NULL || ssh_password == NULL) {
+      fprintf(stderr, "Error parsing line %d in '%s' - possibly corrupted or wrong password\n", line_number, ssh_servers_file);
+      free(current_line);
+      if (*line_end == '\0') break; // Last line
+      line_start = line_end + 1;
+      continue;
+    }
+
+    ssh_port = atoi(string_ssh_port);
+
+    // Create server:port string for selection check
+    char server_port[256];
+    snprintf(server_port, sizeof(server_port), "%s:%d", ssh_server, ssh_port);
+
+    // Check if this server is selected (if selection is specified)
+    if (!is_server_selected(server_port, selected_servers)) {
+      free(current_line);
+      if (*line_end == '\0') break; // Last line
+      line_start = line_end + 1;
+      continue; // Skip this server
+    }
+
+    if (!(valid_port(&ssh_port)))
+       fprintf(stderr, "Error invalid port number %d in the file '%s', line %d.\n", ssh_port, ssh_servers_file, line_number);
+
+    single_ssh_session = ssh_new();
+
+    if (single_ssh_session == NULL)
+       fprintf(stderr, "Error creating new session.\n");
+
+    ssh_options_set(single_ssh_session, SSH_OPTIONS_HOST, ssh_server);
+    ssh_options_set(single_ssh_session, SSH_OPTIONS_PORT, &ssh_port);
+    ssh_options_set(single_ssh_session, SSH_OPTIONS_USER, ssh_username);
+
+    rc = ssh_connect(single_ssh_session);
+
+    if (rc != SSH_OK)
+      fprintf(stderr, "Error connecting to %s: %s\n", ssh_server, ssh_get_error(single_ssh_session));
+
+    remove_new_line(ssh_password);
+
+    rc = ssh_userauth_password(single_ssh_session, NULL, ssh_password);
+
+    // if logged in, run command(s)
+    if (rc == SSH_AUTH_SUCCESS)
+      run_command(single_ssh_session, command);
+
+    else {
+      fprintf(stderr, "Error: %s, in %s line %d\n",
+      ssh_get_error(single_ssh_session), ssh_servers_file, line_number);
+    }
+
+    ssh_disconnect(single_ssh_session);
+    ssh_free(single_ssh_session);
+    
+    free(current_line);
+    
+    // Move to next line
+    if (*line_end == '\0') break; // Last line
+    line_start = line_end + 1;
+  }
+
+  free(file_content);
 
   return 0;
 
