@@ -295,7 +295,7 @@ int main(int argc, char *argv[]) {
   char *line_start = file_content;
   char *line_end;
   
-  while ((line_end = strchr(line_start, '\n')) != NULL || strlen(line_start) > 0) {
+  while ((line_end = strchr(line_start, '\n')) != NULL || *line_start != '\0') {
     line_number++;
     
     // Handle last line without newline
@@ -324,6 +324,11 @@ int main(int argc, char *argv[]) {
       continue;
     }
 
+    // Check line length before parsing
+    if (line_len > 512) {
+       fprintf(stderr, "Error with line %d, maximum length reached in %s, each line must be no more than 512 characters long.\n", line_number, ssh_servers_file);
+    }
+
     ssh_server = strtok(current_line,":");
     string_ssh_port = strtok(NULL,":");
     ssh_username = strtok(NULL,":");
@@ -333,6 +338,7 @@ int main(int argc, char *argv[]) {
     if (ssh_server == NULL || string_ssh_port == NULL || ssh_username == NULL || ssh_password == NULL) {
       fprintf(stderr, "Error parsing line %d in '%s' - possibly corrupted or wrong password\n", line_number, ssh_servers_file);
       free(current_line);
+      if (*line_end == '\0') break; // Last line
       line_start = line_end + 1;
       continue;
     }
@@ -346,12 +352,10 @@ int main(int argc, char *argv[]) {
     // Check if this server is selected (if selection is specified)
     if (!is_server_selected(server_port, selected_servers)) {
       free(current_line);
+      if (*line_end == '\0') break; // Last line
       line_start = line_end + 1;
       continue; // Skip this server
     }
-
-    if (strlen(current_line) > 512)
-       fprintf(stderr, "Error with line %d, maximum length reached in %s, each line must be no more than 512 characters long.\n", line_number, ssh_servers_file);
 
     if (!(valid_port(&ssh_port)))
        fprintf(stderr, "Error invalid port number %d in the file '%s', line %d.\n", ssh_port, ssh_servers_file, line_number);
@@ -389,7 +393,7 @@ int main(int argc, char *argv[]) {
     free(current_line);
     
     // Move to next line
-    if (line_end == line_start + strlen(line_start)) break; // Last line
+    if (*line_end == '\0') break; // Last line
     line_start = line_end + 1;
   }
 

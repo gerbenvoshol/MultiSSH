@@ -87,7 +87,7 @@ int main(int argc, char *argv[]) {
   fseek(input_fp, 0, SEEK_SET);
   
   // Allocate buffer
-  char *buffer = malloc(file_size);
+  char *buffer = malloc(file_size + 1);
   if (buffer == NULL) {
     fprintf(stderr, "Error: Memory allocation failed\n");
     fclose(input_fp);
