@@ -25,7 +25,8 @@ void aes_encrypt_block(const aes_ctx_t *ctx, const uint8_t plaintext[AES_BLOCK_S
 /* Decrypt single block (16 bytes) */
 void aes_decrypt_block(const aes_ctx_t *ctx, const uint8_t ciphertext[AES_BLOCK_SIZE], uint8_t plaintext[AES_BLOCK_SIZE]);
 
-/* ECB mode encryption - data length must be multiple of AES_BLOCK_SIZE */
+/* ECB mode encryption - data length must be multiple of AES_BLOCK_SIZE 
+ * NOTE: ECB mode is used per requirements. For maximum security, consider CBC/GCM modes in future versions. */
 void aes_encrypt_ecb(const aes_ctx_t *ctx, const uint8_t *plaintext, uint8_t *ciphertext, size_t len);
 
 /* ECB mode decryption - data length must be multiple of AES_BLOCK_SIZE */
