@@ -1,5 +1,6 @@
 # Build artifacts
 multissh
+encrypt_servers
 *.o
 *.a
 *.so
