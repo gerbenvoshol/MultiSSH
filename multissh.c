@@ -14,6 +14,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <libssh/libssh.h>
+#include "crypto_utils.h"
 
 extern int errno;
 
@@ -23,7 +24,6 @@ void remove_new_line(char *string);
 int run_command(ssh_session session, char *command);
 void print_usage(const char *program_name);
 int is_server_selected(const char *server, const char *selected_servers);
-void decrypt_data(char *data, size_t length, const char *password);
 int read_encrypted_file(const char *filename, const char *password, char **buffer, size_t *size);
 
 // Function implementations
@@ -147,19 +147,42 @@ int is_server_selected(const char *server, const char *selected_servers) {
   return 0;
 }
 
-// Simple XOR encryption/decryption function
-void decrypt_data(char *data, size_t length, const char *password) {
+// AES decryption function using password-based key derivation
+int decrypt_file_data(const uint8_t *encrypted_data, size_t encrypted_len, const char *password, char **decrypted_data, size_t *decrypted_len) {
   if (password == NULL || strlen(password) == 0) {
-    return; // No decryption if no password provided
+    // No decryption if no password provided - assume plain text
+    *decrypted_data = malloc(encrypted_len + 1);
+    if (*decrypted_data == NULL) {
+      return -1;
+    }
+    memcpy(*decrypted_data, encrypted_data, encrypted_len);
+    (*decrypted_data)[encrypted_len] = '\0';
+    *decrypted_len = encrypted_len;
+    return 0;
   }
   
-  size_t pass_len = strlen(password);
-  for (size_t i = 0; i < length; i++) {
-    data[i] ^= password[i % pass_len];
+  uint8_t *plaintext;
+  size_t plaintext_len;
+  
+  if (decrypt_data_aes(encrypted_data, encrypted_len, password, &plaintext, &plaintext_len) != 0) {
+    return -1;
   }
+  
+  *decrypted_data = malloc(plaintext_len + 1);
+  if (*decrypted_data == NULL) {
+    free(plaintext);
+    return -1;
+  }
+  
+  memcpy(*decrypted_data, plaintext, plaintext_len);
+  (*decrypted_data)[plaintext_len] = '\0';
+  *decrypted_len = plaintext_len;
+  
+  free(plaintext);
+  return 0;
 }
 
-// Read and decrypt a file
+// Read and decrypt a file using AES
 int read_encrypted_file(const char *filename, const char *password, char **buffer, size_t *size) {
   FILE *file = fopen(filename, "rb");
   if (file == NULL) {
@@ -168,34 +191,32 @@ int read_encrypted_file(const char *filename, const char *password, char **buffe
   
   // Get file size
   fseek(file, 0, SEEK_END);
-  *size = ftell(file);
+  size_t file_size = ftell(file);
   fseek(file, 0, SEEK_SET);
   
-  // Allocate buffer
-  *buffer = malloc(*size + 1);
-  if (*buffer == NULL) {
+  // Allocate buffer for encrypted data
+  uint8_t *encrypted_buffer = malloc(file_size);
+  if (encrypted_buffer == NULL) {
     fclose(file);
     return -1;
   }
   
   // Read file
-  if (fread(*buffer, 1, *size, file) != *size) {
-    free(*buffer);
-    *buffer = NULL;
+  if (fread(encrypted_buffer, 1, file_size, file) != file_size) {
+    free(encrypted_buffer);
     fclose(file);
     return -1;
   }
   
   fclose(file);
   
-  // Decrypt if password provided
-  if (password != NULL && strlen(password) > 0) {
-    decrypt_data(*buffer, *size, password);
+  // Decrypt the data
+  if (decrypt_file_data(encrypted_buffer, file_size, password, buffer, size) != 0) {
+    free(encrypted_buffer);
+    return -1;
   }
   
-  // Null terminate
-  (*buffer)[*size] = '\0';
-  
+  free(encrypted_buffer);
   return 0;
 }
 

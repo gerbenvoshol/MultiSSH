@@ -9,17 +9,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "crypto_utils.h"
 
-// Simple XOR encryption/decryption function
-void encrypt_decrypt_data(char *data, size_t length, const char *password) {
-  if (password == NULL || strlen(password) == 0) {
-    return;
-  }
-  
-  size_t pass_len = strlen(password);
-  for (size_t i = 0; i < length; i++) {
-    data[i] ^= password[i % pass_len];
-  }
+// AES encryption/decryption functions using password-based key derivation
+int encrypt_data(const uint8_t *input, size_t input_len, const char *password, uint8_t **output, size_t *output_len) {
+  return encrypt_data_aes(input, input_len, password, output, output_len);
+}
+
+int decrypt_data(const uint8_t *input, size_t input_len, const char *password, uint8_t **output, size_t *output_len) {
+  return decrypt_data_aes(input, input_len, password, output, output_len);
 }
 
 void print_usage(const char *program_name) {
@@ -87,7 +85,7 @@ int main(int argc, char *argv[]) {
   fseek(input_fp, 0, SEEK_SET);
   
   // Allocate buffer
-  char *buffer = malloc(file_size + 1);
+  uint8_t *buffer = malloc(file_size);
   if (buffer == NULL) {
     fprintf(stderr, "Error: Memory allocation failed\n");
     fclose(input_fp);
@@ -105,26 +103,43 @@ int main(int argc, char *argv[]) {
   fclose(input_fp);
   
   // Encrypt/decrypt the data
-  encrypt_decrypt_data(buffer, file_size, password);
+  uint8_t *processed_data;
+  size_t processed_len;
+  int result;
+  
+  if (decrypt_mode) {
+    result = decrypt_data(buffer, file_size, password, &processed_data, &processed_len);
+  } else {
+    result = encrypt_data(buffer, file_size, password, &processed_data, &processed_len);
+  }
+  
+  if (result != 0) {
+    fprintf(stderr, "Error: %s operation failed\n", decrypt_mode ? "Decryption" : "Encryption");
+    free(buffer);
+    exit(EXIT_FAILURE);
+  }
   
   // Open output file
   FILE *output_fp = fopen(output_file, "wb");
   if (output_fp == NULL) {
     fprintf(stderr, "Error: Cannot create output file '%s'\n", output_file);
     free(buffer);
+    free(processed_data);
     exit(EXIT_FAILURE);
   }
   
   // Write encrypted/decrypted data
-  if (fwrite(buffer, 1, file_size, output_fp) != file_size) {
+  if (fwrite(processed_data, 1, processed_len, output_fp) != processed_len) {
     fprintf(stderr, "Error: Failed to write output file\n");
     free(buffer);
+    free(processed_data);
     fclose(output_fp);
     exit(EXIT_FAILURE);
   }
   
   fclose(output_fp);
   free(buffer);
+  free(processed_data);
   
   printf("Successfully %s '%s' to '%s'\n", 
          decrypt_mode ? "decrypted" : "encrypted", 
