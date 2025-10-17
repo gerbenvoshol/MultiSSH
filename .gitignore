@@ -12,3 +12,7 @@ encrypt_servers
 
 # Personal SSH server lists (keep example)
 sshservers
+
+# Test files
+test_*
+final_test_*

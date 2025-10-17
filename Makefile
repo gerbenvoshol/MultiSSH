@@ -8,17 +8,18 @@ TARGET = multissh
 SOURCE = multissh.c
 ENCRYPT_TARGET = encrypt_servers
 ENCRYPT_SOURCE = encrypt_servers.c
+CRYPTO_SOURCES = sha256.c aes.c crypto_utils.c
 
 # Default target
 all: $(TARGET) $(ENCRYPT_TARGET)
 
 # Build the main executable
-$(TARGET): $(SOURCE)
-	$(CC) $(CFLAGS) $(SOURCE) -o $(TARGET) $(LIBS)
+$(TARGET): $(SOURCE) $(CRYPTO_SOURCES)
+	$(CC) $(CFLAGS) $(SOURCE) $(CRYPTO_SOURCES) -o $(TARGET) $(LIBS)
 
 # Build the encryption utility
-$(ENCRYPT_TARGET): $(ENCRYPT_SOURCE)
-	$(CC) $(CFLAGS) $(ENCRYPT_SOURCE) -o $(ENCRYPT_TARGET)
+$(ENCRYPT_TARGET): $(ENCRYPT_SOURCE) $(CRYPTO_SOURCES)
+	$(CC) $(CFLAGS) $(ENCRYPT_SOURCE) $(CRYPTO_SOURCES) -o $(ENCRYPT_TARGET)
 
 # Clean up build artifacts
 clean:
