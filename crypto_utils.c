@@ -8,39 +8,51 @@
 #include "crypto_utils.h"
 #include "sha256.h"
 #include "micro_aes.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
 
-/* Generate random IV for CBC mode */
+/* Generate cryptographically secure random IV for CBC mode */
 static void generate_random_iv(uint8_t iv[16]) {
+    /* Try to use /dev/urandom for cryptographically secure randomness */
+    FILE *random_source = fopen("/dev/urandom", "rb");
+    if (random_source != NULL) {
+        size_t bytes_read = fread(iv, 1, 16, random_source);
+        fclose(random_source);
+        
+        if (bytes_read == 16) {
+            return; /* Successfully read from /dev/urandom */
+        }
+    }
+    
+    /* Fallback: use SHA-256 of mixed entropy sources if /dev/urandom fails */
     static int seeded = 0;
     static unsigned int call_count = 0;
     
     if (!seeded) {
-        /* Seed with time and process ID for better entropy */
         srand((unsigned int)time(NULL) ^ (unsigned int)getpid());
         seeded = 1;
     }
     
-    /* Increment call counter for uniqueness within same second */
     call_count++;
     
-    /* Use SHA-256 of random values + counter + time for better randomness */
-    uint8_t random_data[48];
+    /* Mix multiple entropy sources */
+    uint8_t entropy_data[48];
     unsigned int timestamp = (unsigned int)time(NULL);
+    unsigned int pid = (unsigned int)getpid();
     
-    /* Mix random values, counter, and timestamp */
     for (int i = 0; i < 32; i++) {
-        random_data[i] = (uint8_t)rand();
+        entropy_data[i] = (uint8_t)rand();
     }
-    memcpy(random_data + 32, &timestamp, sizeof(timestamp));
-    memcpy(random_data + 36, &call_count, sizeof(call_count));
+    memcpy(entropy_data + 32, &timestamp, sizeof(timestamp));
+    memcpy(entropy_data + 36, &pid, sizeof(pid));
+    memcpy(entropy_data + 40, &call_count, sizeof(call_count));
     
-    /* Hash to get high-quality randomness */
+    /* Hash to get randomness */
     uint8_t hash[SHA256_DIGEST_SIZE];
-    sha256_hash(random_data, sizeof(random_data), hash);
+    sha256_hash(entropy_data, sizeof(entropy_data), hash);
     memcpy(iv, hash, 16);
 }
 
