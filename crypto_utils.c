@@ -1,13 +1,60 @@
 /*
  * Crypto utilities for MultiSSH
- * Password-based key derivation and padding functions
+ * Password-based key derivation using industry-standard micro-AES library
+ * Uses AES-128-CBC mode with random IV for secure encryption
+ * https://github.com/gerbenvoshol/micro-AES
  */
 
 #include "crypto_utils.h"
 #include "sha256.h"
-#include "aes.h"
+#include "micro_aes.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+/* Generate cryptographically secure random IV for CBC mode */
+static void generate_random_iv(uint8_t iv[16]) {
+    /* Try to use /dev/urandom for cryptographically secure randomness */
+    FILE *random_source = fopen("/dev/urandom", "rb");
+    if (random_source != NULL) {
+        size_t bytes_read = fread(iv, 1, 16, random_source);
+        fclose(random_source);
+        
+        if (bytes_read == 16) {
+            return; /* Successfully read from /dev/urandom */
+        }
+    }
+    
+    /* Fallback: use SHA-256 of mixed entropy sources if /dev/urandom fails */
+    static int seeded = 0;
+    static unsigned int call_count = 0;
+    
+    if (!seeded) {
+        srand((unsigned int)time(NULL) ^ (unsigned int)getpid());
+        seeded = 1;
+    }
+    
+    call_count++;
+    
+    /* Mix multiple entropy sources */
+    uint8_t entropy_data[48];
+    unsigned int timestamp = (unsigned int)time(NULL);
+    unsigned int pid = (unsigned int)getpid();
+    
+    for (int i = 0; i < 32; i++) {
+        entropy_data[i] = (uint8_t)rand();
+    }
+    memcpy(entropy_data + 32, &timestamp, sizeof(timestamp));
+    memcpy(entropy_data + 36, &pid, sizeof(pid));
+    memcpy(entropy_data + 40, &call_count, sizeof(call_count));
+    
+    /* Hash to get randomness */
+    uint8_t hash[SHA256_DIGEST_SIZE];
+    sha256_hash(entropy_data, sizeof(entropy_data), hash);
+    memcpy(iv, hash, 16);
+}
 
 void derive_aes_key_from_password(const char *password, uint8_t key[16]) {
     uint8_t hash[SHA256_DIGEST_SIZE];
@@ -16,127 +63,108 @@ void derive_aes_key_from_password(const char *password, uint8_t key[16]) {
     memcpy(key, hash, 16);
 }
 
-size_t add_pkcs7_padding(const uint8_t *input, size_t input_len, uint8_t **output) {
-    size_t padding_len = AES_BLOCK_SIZE - (input_len % AES_BLOCK_SIZE);
-    size_t output_len = input_len + padding_len;
-    
-    *output = malloc(output_len);
-    if (*output == NULL) {
-        return 0;
-    }
-    
-    memcpy(*output, input, input_len);
-    
-    /* Add PKCS#7 padding */
-    for (size_t i = input_len; i < output_len; i++) {
-        (*output)[i] = (uint8_t)padding_len;
-    }
-    
-    return output_len;
-}
-
-size_t remove_pkcs7_padding(const uint8_t *input, size_t input_len, uint8_t **output) {
-    if (input_len == 0 || input_len % AES_BLOCK_SIZE != 0) {
-        return 0; /* Invalid input */
-    }
-    
-    uint8_t padding_len = input[input_len - 1];
-    
-    /* Validate padding */
-    if (padding_len == 0 || padding_len > AES_BLOCK_SIZE) {
-        return 0; /* Invalid padding */
-    }
-    
-    if (padding_len > input_len) {
-        return 0; /* Invalid padding */
-    }
-    
-    /* Check all padding bytes */
-    for (size_t i = input_len - padding_len; i < input_len; i++) {
-        if (input[i] != padding_len) {
-            return 0; /* Invalid padding */
-        }
-    }
-    
-    size_t output_len = input_len - padding_len;
-    *output = malloc(output_len);
-    if (*output == NULL) {
-        return 0;
-    }
-    
-    memcpy(*output, input, output_len);
-    return output_len;
-}
-
 int encrypt_data_aes(const uint8_t *plaintext, size_t plaintext_len, const char *password, uint8_t **ciphertext, size_t *ciphertext_len) {
     uint8_t key[16];
-    uint8_t *padded_data;
-    size_t padded_len;
-    aes_ctx_t ctx;
+    uint8_t iv[16];
     
     /* Derive key from password */
     derive_aes_key_from_password(password, key);
     
-    /* Add PKCS#7 padding */
-    padded_len = add_pkcs7_padding(plaintext, plaintext_len, &padded_data);
-    if (padded_len == 0) {
-        return -1; /* Memory allocation failed */
-    }
+    /* Generate random IV for CBC mode */
+    generate_random_iv(iv);
     
-    /* Allocate output buffer */
-    *ciphertext = malloc(padded_len);
+    /* Calculate output size with PKCS#7 padding */
+    size_t padding_len = 16 - (plaintext_len % 16);
+    size_t padded_len = plaintext_len + padding_len;
+    
+    /* Allocate output buffer: IV (16 bytes) + encrypted data */
+    *ciphertext_len = 16 + padded_len;
+    *ciphertext = malloc(*ciphertext_len);
     if (*ciphertext == NULL) {
-        free(padded_data);
         return -1;
     }
     
-    /* Initialize AES context and encrypt */
-    aes_init(&ctx, key);
-    aes_encrypt_ecb(&ctx, padded_data, *ciphertext, padded_len);
+    /* Store IV at the beginning of ciphertext */
+    memcpy(*ciphertext, iv, 16);
     
-    *ciphertext_len = padded_len;
+    /* Encrypt using micro-AES CBC mode (handles PKCS#7 padding automatically) */
+    char result = AES_CBC_encrypt(key, iv, plaintext, plaintext_len, *ciphertext + 16);
     
     /* Clear sensitive data */
     memset(key, 0, sizeof(key));
-    memset(padded_data, 0, padded_len);
-    free(padded_data);
+    memset(iv, 0, sizeof(iv));
+    
+    if (result != 0) {
+        free(*ciphertext);
+        *ciphertext = NULL;
+        return -1;
+    }
     
     return 0;
 }
 
 int decrypt_data_aes(const uint8_t *ciphertext, size_t ciphertext_len, const char *password, uint8_t **plaintext, size_t *plaintext_len) {
     uint8_t key[16];
-    uint8_t *decrypted_data;
-    aes_ctx_t ctx;
+    uint8_t iv[16];
     
-    if (ciphertext_len == 0 || ciphertext_len % AES_BLOCK_SIZE != 0) {
+    /* Ciphertext must contain at least IV (16 bytes) + one block (16 bytes) */
+    if (ciphertext_len < 32 || (ciphertext_len - 16) % 16 != 0) {
         return -1; /* Invalid ciphertext length */
     }
     
     /* Derive key from password */
     derive_aes_key_from_password(password, key);
     
-    /* Allocate buffer for decrypted data */
-    decrypted_data = malloc(ciphertext_len);
-    if (decrypted_data == NULL) {
+    /* Extract IV from the beginning of ciphertext */
+    memcpy(iv, ciphertext, 16);
+    
+    /* Allocate buffer for decrypted data (maximum size) */
+    size_t encrypted_len = ciphertext_len - 16;
+    *plaintext = malloc(encrypted_len);
+    if (*plaintext == NULL) {
         return -1;
     }
     
-    /* Initialize AES context and decrypt */
-    aes_init(&ctx, key);
-    aes_decrypt_ecb(&ctx, ciphertext, decrypted_data, ciphertext_len);
-    
-    /* Remove PKCS#7 padding */
-    *plaintext_len = remove_pkcs7_padding(decrypted_data, ciphertext_len, plaintext);
+    /* Decrypt using micro-AES CBC mode */
+    char result = AES_CBC_decrypt(key, iv, ciphertext + 16, encrypted_len, *plaintext);
     
     /* Clear sensitive data */
     memset(key, 0, sizeof(key));
-    memset(decrypted_data, 0, ciphertext_len);
-    free(decrypted_data);
+    memset(iv, 0, sizeof(iv));
     
-    if (*plaintext_len == 0) {
-        return -1; /* Padding removal failed */
+    if (result != 0) {
+        free(*plaintext);
+        *plaintext = NULL;
+        return -1; /* Decryption failed */
     }
+    
+    /* Remove PKCS#7 padding (CBC mode adds padding but doesn't remove it) */
+    uint8_t padding_len = (*plaintext)[encrypted_len - 1];
+    
+    /* Validate padding */
+    if (padding_len == 0 || padding_len > 16) {
+        free(*plaintext);
+        *plaintext = NULL;
+        return -1; /* Invalid padding */
+    }
+    
+    if (padding_len > encrypted_len) {
+        free(*plaintext);
+        *plaintext = NULL;
+        return -1; /* Invalid padding */
+    }
+    
+    /* Check all padding bytes */
+    for (size_t i = encrypted_len - padding_len; i < encrypted_len; i++) {
+        if ((*plaintext)[i] != padding_len) {
+            free(*plaintext);
+            *plaintext = NULL;
+            return -1; /* Invalid padding */
+        }
+    }
+    
+    /* The plaintext length is the encrypted length minus padding */
+    *plaintext_len = encrypted_len - padding_len;
     
     return 0;
 }

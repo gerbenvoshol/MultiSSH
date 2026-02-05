@@ -8,7 +8,7 @@ TARGET = multissh
 SOURCE = multissh.c
 ENCRYPT_TARGET = encrypt_servers
 ENCRYPT_SOURCE = encrypt_servers.c
-CRYPTO_SOURCES = sha256.c aes.c crypto_utils.c
+CRYPTO_SOURCES = sha256.c micro_aes.c crypto_utils.c
 
 # Default target
 all: $(TARGET) $(ENCRYPT_TARGET)
