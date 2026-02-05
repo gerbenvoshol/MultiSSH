@@ -76,7 +76,7 @@ int main() {
     free(decrypted);
     
     printf("\n✅ All crypto tests passed!\n");
-    printf("MultiSSH AES-128 ECB encryption using micro-AES library is working correctly.\n");
+    printf("MultiSSH AES-128 CBC encryption using micro-AES library is working correctly.\n");
     
     return 0;
 }

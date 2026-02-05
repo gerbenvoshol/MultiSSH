@@ -20,14 +20,14 @@ You can use different AES algorithms by changing this macro. Default is AES-128
 AES block-cipher modes of operation. The following modes can be enabled/disabled
  by setting their corresponding macros to TRUE (1) or FALSE (0).
  
- NOTE: Configured for MultiSSH - only ECB mode enabled for minimal footprint
+ NOTE: Configured for MultiSSH - CBC mode for secure encryption
  -----------------------------------------------------------------------------*/
 #define BLOCKCIPHERS 1
 #define AEAD_MODES   0     /* authenticated encryption with associated data.  */
 
 #if BLOCKCIPHERS
-#define ECB          1     /* electronic code-book (NIST SP 800-38A)          */
-#define CBC          0     /* cipher block chaining (NIST SP 800-38A)         */
+#define ECB          0     /* electronic code-book (NIST SP 800-38A)          */
+#define CBC          1     /* cipher block chaining (NIST SP 800-38A)         */
 #define CFB          0     /* cipher feedback (NIST SP 800-38A)               */
 #define OFB          0     /* output feedback (NIST SP 800-38A)               */
 #define CTR          0     /* counter-block (NIST SP 800-38A)                 */
