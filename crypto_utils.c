@@ -72,7 +72,7 @@ int decrypt_data_aes(const uint8_t *ciphertext, size_t ciphertext_len, const cha
         return -1; /* Decryption failed */
     }
     
-    /* Remove PKCS#7 padding manually */
+    /* Remove PKCS#7 padding (micro-AES adds padding during encryption but doesn't remove it during decryption) */
     uint8_t padding_len = (*plaintext)[ciphertext_len - 1];
     
     /* Validate padding */
