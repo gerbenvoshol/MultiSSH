@@ -99,7 +99,7 @@ To use an encrypted servers file with MultiSSH:
 ./multissh -f /path/to/encrypted-servers -p mypassword 'df -h'
 ```
 
-**Note:** The encryption uses AES-128 in ECB mode with password-based key derivation using SHA-256. This provides strong cryptographic protection for your SSH credentials. The first 16 bytes of the SHA-256 hash of your password are used as the AES encryption key.
+**Note:** The encryption uses the industry-standard **micro-AES library** (https://github.com/gerbenvoshol/micro-AES) with AES-128 in ECB mode with PKCS#7 padding and password-based key derivation using SHA-256. This provides strong cryptographic protection for your SSH credentials. The first 16 bytes of the SHA-256 hash of your password are used as the AES encryption key. The micro-AES library is a comprehensive, lightweight, and portable ANSI-C compatible implementation that provides strong cryptographic encryption.
 
 **Build System:**
 

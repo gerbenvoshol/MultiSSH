@@ -1,6 +1,7 @@
 /*
  * Crypto utilities for MultiSSH
- * Password-based key derivation using micro-AES library
+ * Password-based key derivation using industry-standard micro-AES library
+ * https://github.com/gerbenvoshol/micro-AES
  */
 
 #include "crypto_utils.h"

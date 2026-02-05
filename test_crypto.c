@@ -1,6 +1,6 @@
 /*
  * Simple test program to validate AES encryption and SHA-256 key derivation
- * This validates the core crypto functionality for MultiSSH
+ * This validates the core crypto functionality for MultiSSH using micro-AES library
  */
 
 #include <stdio.h>
@@ -9,7 +9,7 @@
 #include <assert.h>
 #include "crypto_utils.h"
 #include "sha256.h"
-#include "aes.h"
+#include "micro_aes.h"
 
 int main() {
     printf("Testing MultiSSH crypto components...\n\n");
@@ -76,7 +76,7 @@ int main() {
     free(decrypted);
     
     printf("\n✅ All crypto tests passed!\n");
-    printf("MultiSSH AES-128 ECB encryption is working correctly.\n");
+    printf("MultiSSH AES-128 ECB encryption using micro-AES library is working correctly.\n");
     
     return 0;
 }
