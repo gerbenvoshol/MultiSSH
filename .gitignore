@@ -15,4 +15,4 @@ sshservers
 
 # Test files
 test_*
-final_test_*
+final_test_*_codeql_detected_source_root
